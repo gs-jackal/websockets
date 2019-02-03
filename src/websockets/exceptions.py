@@ -7,6 +7,7 @@ from .http import Headers, HeadersLike
 __all__ = [
     "AbortHandshake",
     "ConnectionClosed",
+    "ConnectionClosedOK",
     "DuplicateParameter",
     "InvalidHandshake",
     "InvalidHeader",
@@ -203,7 +204,6 @@ def format_close(code: int, reason: str) -> str:
     """
     Display a human-readable version of the close code and reason.
 
-
     """
     if 3000 <= code < 4000:
         explanation = "registered"
@@ -236,6 +236,19 @@ class ConnectionClosed(InvalidState):
         message = "WebSocket connection is closed: "
         message += format_close(code, reason)
         super().__init__(message)
+
+
+class ConnectionClosedOK(ConnectionClosed):
+    """
+    Like :exc:`ConnectionClosed`, only when the connection terminated properly.
+
+    Proper termination means the close codes is 1000 (OK) or 1001 (going away).
+
+    """
+
+    def __init__(self, code: int, reason: str) -> None:
+        assert code == 1000 or code == 1001
+        super().__init__(code, reason)
 
 
 class InvalidURI(Exception):

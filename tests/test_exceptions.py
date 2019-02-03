@@ -85,12 +85,12 @@ class ExceptionsTests(unittest.TestCase):
                 "WebSocket connection isn't established yet",
             ),
             (
-                ConnectionClosed(1000, ''),
+                ConnectionClosedOK(1000, ''),
                 "WebSocket connection is closed: code = 1000 "
                 "(OK), no reason",
             ),
             (
-                ConnectionClosed(1001, 'bye'),
+                ConnectionClosedOK(1001, 'bye'),
                 "WebSocket connection is closed: code = 1001 "
                 "(going away), reason = bye",
             ),

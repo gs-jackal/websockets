@@ -29,6 +29,7 @@ from typing import (
 
 from .exceptions import (
     ConnectionClosed,
+    ConnectionClosedOK,
     InvalidState,
     PayloadTooBig,
     WebSocketProtocolError,
@@ -376,11 +377,10 @@ class WebSocketCommonProtocol(asyncio.StreamReaderProtocol):
         try:
             while True:
                 yield await self.recv()
-        except ConnectionClosed as exc:
-            if exc.code == 1000 or exc.code == 1001:
-                return
-            else:
-                raise
+        except ConnectionClosedOK:
+            return
+        except ConnectionClosed:
+            raise
 
     async def recv(self) -> Data:
         """
@@ -653,6 +653,17 @@ class WebSocketCommonProtocol(asyncio.StreamReaderProtocol):
 
     # Private methods - no guarantees.
 
+    @property
+    def connection_closed_exc(self) -> ConnectionClosed:
+        exception: ConnectionClosed
+        if self.close_code == 1000 or self.close_code == 1001:
+            exception = ConnectionClosedOK(self.close_code, self.close_reason)
+        else:
+            exception = ConnectionClosed(self.close_code, self.close_reason)
+        # Chain to the exception that terminated data transfer, if any.
+        exception.__cause__ = self.transfer_data_exc
+        return exception
+
     async def ensure_open(self) -> None:
         """
         Check that the WebSocket connection is open.
@@ -667,16 +678,12 @@ class WebSocketCommonProtocol(asyncio.StreamReaderProtocol):
             # from OPEN to CLOSED.
             if self.transfer_data_task.done():
                 await asyncio.shield(self.close_connection_task)
-                raise ConnectionClosed(
-                    self.close_code, self.close_reason
-                ) from self.transfer_data_exc
+                raise self.connection_closed_exc
             else:
                 return
 
         if self.state is State.CLOSED:
-            raise ConnectionClosed(
-                self.close_code, self.close_reason
-            ) from self.transfer_data_exc
+            raise self.connection_closed_exc
 
         if self.state is State.CLOSING:
             # If we started the closing handshake, wait for its completion to
@@ -685,9 +692,7 @@ class WebSocketCommonProtocol(asyncio.StreamReaderProtocol):
             # CLOSING state also occurs when failing the connection. In that
             # case self.close_connection_task will complete even faster.
             await asyncio.shield(self.close_connection_task)
-            raise ConnectionClosed(
-                self.close_code, self.close_reason
-            ) from self.transfer_data_exc
+            raise self.connection_closed_exc
 
         # Control may only reach this point in buggy third-party subclasses.
         assert self.state is State.CONNECTING
@@ -1156,8 +1161,7 @@ class WebSocketCommonProtocol(asyncio.StreamReaderProtocol):
 
         """
         assert self.state is State.CLOSED
-        exc = ConnectionClosed(self.close_code, self.close_reason)
-        exc.__cause__ = self.transfer_data_exc  # emulate raise ... from ...
+        exc = self.connection_closed_exc
 
         for ping in self.pings.values():
             ping.set_exception(exc)
